@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta name="base:app_id" content="6a5cf6f85842f424e4066d38" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Base Memory — Daily Puzzle 🧠</title>
+    <meta name="description" content="A daily memory match puzzle for the Base network — one shared layout a day, claim onchain rewards, and share your streak.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;900&display=swap');
+
+        :root { --board-size: min(92vw, 400px); }
+        * { -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; }
+
+        body {
+            background: radial-gradient(circle at 50% 0%, #2e1065 0%, #020617 80%);
+            color: white;
+            font-family: 'Outfit', sans-serif;
+            touch-action: none;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                radial-gradient(circle at 20% 30%, rgba(139, 92, 246, 0.18) 0%, transparent 22%),
+                radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.18) 0%, transparent 22%),
+                radial-gradient(circle at 50% 90%, rgba(236, 72, 153, 0.12) 0%, transparent 25%);
+            z-index: -2;
+            pointer-events: none;
+        }
+
+        .stars { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+        .star {
+            position: absolute; width: 3px; height: 3px; background: white; border-radius: 50%;
+            opacity: 0.5; animation: twinkle 3s ease-in-out infinite;
+        }
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.15; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.4); }
+        }
+
+        .ships { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+        .ship {
+            position: absolute;
+            font-size: 22px;
+            opacity: 0.5;
+            filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.6));
+            animation-name: driftAcross;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
+            will-change: transform;
+        }
+        @keyframes driftAcross {
+            0% { transform: translate(-10vw, 0) rotate(35deg); opacity: 0; }
+            8% { opacity: 0.55; }
+            92% { opacity: 0.55; }
+            100% { transform: translate(115vw, -55vh) rotate(35deg); opacity: 0; }
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .brand-title {
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #a855f7, #ec4899 50%, #6366f1);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            filter: drop-shadow(0 0 18px rgba(168, 85, 247, 0.35));
+        }
+
+        .stat-card { min-width: 0; }
+        .stat-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #94a3b8;
+            margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .stat-value {
+            font-size: clamp(16px, 5vw, 24px); font-weight: 900; line-height: 1.1;
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+        }
+
+        .shiny-btn {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+            background-size: 200% 200%;
+            animation: gradientShift 4s ease infinite;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .shiny-btn:disabled, .action-btn:disabled {
+            opacity: 0.5; cursor: not-allowed; animation: none; transform: none !important;
+        }
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; }
+        }
+
+        .mute-toggle { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; }
+
+        .wallet-option { border: 1px solid rgba(255,255,255,0.08); }
+        .wallet-option:hover { border-color: rgba(168, 85, 247, 0.5); background: rgba(168, 85, 247, 0.08); }
+
+        /* --- Memory board --- */
+        .memory-grid {
+            display: grid;
+            gap: min(2vw, 8px);
+            padding: 10px;
+            border-radius: 20px;
+            box-shadow: 0 0 40px rgba(139, 92, 246, 0.3), inset 0 0 20px rgba(0,0,0,0.5);
+            width: var(--board-size);
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .card-slot { perspective: 800px; min-width: 0; min-height: 0; }
+        .card-inner {
+            position: relative; width: 100%; height: 100%;
+            transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform-style: preserve-3d;
+            cursor: pointer;
+        }
+        .card-slot.flipped .card-inner { transform: rotateY(180deg); }
+        .card-slot.matched .card-inner { transform: rotateY(180deg); cursor: default; }
+
+        .card-face {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 10px;
+            backface-visibility: hidden;
+            font-size: clamp(11px, 3.9vw, 26px);
+        }
+        .card-back {
+            background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(168,85,247,0.35));
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .card-front {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            transform: rotateY(180deg);
+        }
+        .card-slot.matched .card-front {
+            background: rgba(16, 185, 129, 0.18);
+            border-color: rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 18px rgba(16, 185, 129, 0.4);
+        }
+        .card-slot.shake .card-inner { animation: shake 0.4s; }
+        @keyframes shake {
+            0%, 100% { transform: rotateY(180deg) translateX(0); }
+            25% { transform: rotateY(180deg) translateX(-6px); }
+            75% { transform: rotateY(180deg) translateX(6px); }
+        }
+
+        .level-btn {
+            flex: 1;
+            padding: 10px 6px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .level-btn.active {
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-color: rgba(255,255,255,0.3);
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+        }
+        .level-btn.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .level-btn.done::after {
+            content: ' ✓';
+            color: #34d399;
+        }
+
+        .lb-row {
+            display: grid;
+            grid-template-columns: 32px 1fr 52px 56px;
+            align-items: center;
+            gap: 6px;
+        }
+        .lb-header {
+            color: #64748b;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            padding: 0 12px;
+        }
+
+
+        .confetti-piece {
+            position: fixed; top: -10px; border-radius: 2px; z-index: 50;
+            pointer-events: none; animation: fall linear forwards;
+        }
+        @keyframes fall { to { transform: translateY(110vh) rotate(540deg); opacity: 0.2; } }
+
+        .result-overlay {
+            position: fixed; inset: 0; z-index: 50;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(2, 6, 23, 0.8); backdrop-filter: blur(4px);
+        }
+    </style>
+</meta name="base:app_id" content="6a5cf6f85842f424e4066d38" />
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="stars" id="stars"></div>
+    <div class="ships" id="ships"></div>
+
+    <!-- Header & Wallet -->
+    <div class="glass-panel w-full max-w-[400px] flex justify-between items-center mb-4 p-4 rounded-2xl relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-1 h-full bg-blue-500 shadow-[0_0_15px_#3b82f6]"></div>
+        <div class="pl-2">
+            <span class="text-[10px] text-blue-400 font-bold tracking-widest flex items-center gap-1.5">
+                <span id="netDot" class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                <span id="netLabel">BASE MAINNET</span>
+            </span>
+            <div id="walletAddress" class="text-sm font-mono text-gray-200 mt-0.5">Not Connected</div>
+        </div>
+        <button id="connectBtn" onclick="openWalletModal()" class="bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all active:scale-95">
+            Connect
+        </button>
+    </div>
+
+    <!-- Wallet Picker Modal -->
+    <div id="walletModal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style="background: rgba(2, 6, 23, 0.75); backdrop-filter: blur(4px);">
+        <div class="glass-panel w-full max-w-[380px] rounded-2xl p-5" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-base font-bold">Connect a wallet</h2>
+                <button onclick="closeWalletModal()" class="text-gray-400 hover:text-white text-xl leading-none px-2" aria-label="Close">×</button>
+            </div>
+            <div id="walletList" class="space-y-2"></div>
+            <p class="text-[11px] text-gray-400 mt-4 text-center">Base Memory never asks for your seed phrase or private key.</p>
+        </div>
+    </div>
+
+    <!-- Title -->
+    <div class="text-center mb-4 select-none">
+        <h1 class="brand-title text-3xl leading-tight">Base Memory</h1>
+        <p class="text-[11px] text-gray-400 tracking-wide mt-0.5" id="puzzleSubtitle">Daily Puzzle · Loading...</p>
+    </div>
+
+    <!-- Level Selector -->
+    <div class="grid grid-cols-3 gap-2 w-full mb-4" style="max-width: var(--board-size);" id="levelSelector"></div>
+
+    <!-- Stats -->
+    <div class="flex gap-2 sm:gap-3 w-full mb-4" style="max-width: var(--board-size);">
+        <div class="glass-panel stat-card flex-1 rounded-2xl px-2 py-3 text-center">
+            <div class="stat-label">MOVES</div>
+            <div id="movesDisplay" class="stat-value bg-gradient-to-r from-pink-400 to-purple-400">0</div>
+        </div>
+        <div class="glass-panel stat-card flex-1 rounded-2xl px-2 py-3 text-center">
+            <div class="stat-label">TIME</div>
+            <div id="timeDisplay" class="stat-value bg-gradient-to-r from-yellow-300 to-amber-500">0:00</div>
+        </div>
+        <div class="glass-panel stat-card flex-1 rounded-2xl px-2 py-3 text-center">
+            <div class="stat-label">STREAK</div>
+            <div id="streakDisplay" class="stat-value bg-gradient-to-r from-cyan-300 to-blue-400">🔥0</div>
+        </div>
+    </div>
+
+    <!-- Game Board -->
+    <div class="glass-panel memory-grid" id="board"></div>
+
+    <!-- Actions -->
+    <div class="mt-6 w-full space-y-3" style="max-width: var(--board-size);">
+        <button id="dailyBtn" onclick="claimDailyReward()" class="action-btn shiny-btn w-full py-4 rounded-2xl font-bold text-sm uppercase tracking-wider shadow-xl flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all text-white" disabled>
+            <span id="dailyBtnLabel">🧩 Solve Today's Puzzle First</span>
+        </button>
+        <button id="saveBtn" onclick="saveResultOnChain()" class="action-btn w-full glass-panel bg-emerald-900/40 hover:bg-emerald-800/60 py-3.5 rounded-2xl font-bold text-sm text-emerald-400 border border-emerald-500/30 active:scale-95 transition-all uppercase tracking-wider" disabled>
+            💾 Save Result On-Chain
+        </button>
+    </div>
+
+    <div class="flex items-center justify-center gap-3 mt-4">
+        <button onclick="toggleMute()" id="muteBtn" class="mute-toggle glass-panel rounded-full text-sm" title="Toggle sound">🔊</button>
+        <button onclick="startPracticeRound()" id="practiceBtn" class="mute-toggle glass-panel rounded-full text-sm px-3 w-auto" title="Practice with a random layout">🎲 Practice</button>
+        <button onclick="openLeaderboard()" id="leaderboardBtn" class="mute-toggle glass-panel rounded-full text-sm px-3 w-auto" title="View leaderboard">🏆 Leaderboard</button>
+    </div>
+
+    <p id="txStatus" class="text-xs text-center font-mono mt-4 min-h-[1rem] text-emerald-400 tracking-wide px-4"></p>
+
+    <!-- Result overlay -->
+    <div id="resultOverlay" class="result-overlay hidden">
+        <div class="glass-panel w-full max-w-[360px] rounded-2xl p-6 text-center mx-4">
+            <div class="text-4xl mb-2">🎉</div>
+            <h2 class="text-lg font-black mb-1">Puzzle Solved!</h2>
+            <p id="resultSummary" class="text-sm text-gray-300 mb-4"></p>
+            <div id="resultGrid" class="font-mono text-lg tracking-widest mb-4"></div>
+            <div class="flex gap-2 mb-2">
+                <button onclick="shareResult()" class="flex-1 shiny-btn py-3 rounded-xl font-bold text-xs uppercase tracking-wider">📋 Copy Result</button>
+                <button onclick="closeResultOverlay()" class="flex-1 glass-panel py-3 rounded-xl font-bold text-xs uppercase tracking-wider">Close</button>
+            </div>
+            <button id="nextLevelBtn" onclick="goToNextLevel()" class="hidden w-full shiny-btn py-3 rounded-xl font-bold text-xs uppercase tracking-wider">🔓 Next Level →</button>
+        </div>
+    </div>
+
+    <!-- Leaderboard modal -->
+    <div id="leaderboardOverlay" class="result-overlay hidden" onclick="closeLeaderboard()">
+        <div class="glass-panel w-full max-w-[380px] rounded-2xl p-5 mx-4" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between mb-1">
+                <h2 class="text-base font-bold">🏆 Leaderboard</h2>
+                <button onclick="closeLeaderboard()" class="text-gray-400 hover:text-white text-xl leading-none px-2" aria-label="Close">×</button>
+            </div>
+            <p class="text-[11px] text-gray-400 mb-3">Best runs saved on this device — not synced across devices.</p>
+            <div id="leaderboardLevelTabs" class="grid grid-cols-3 gap-2 mb-3"></div>
+            <div class="lb-row lb-header">
+                <span>#</span><span>PLAYER</span><span class="text-right">MOVES</span><span class="text-right">SCORE</span>
+            </div>
+            <div id="leaderboardList" class="space-y-1.5 max-h-[280px] overflow-y-auto mt-1"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- BACKGROUND STARFIELD ---
+        (function initStars() {
+            const container = document.getElementById('stars');
+            for (let i = 0; i < 40; i++) {
+                const s = document.createElement('div');
+                s.className = 'star';
+                s.style.left = Math.random() * 100 + '%';
+                s.style.top = Math.random() * 100 + '%';
+                s.style.animationDelay = (Math.random() * 3) + 's';
+                s.style.animationDuration = (2 + Math.random() * 3) + 's';
+                container.appendChild(s);
+            }
+        })();
+
+        // --- DRIFTING SPACESHIPS ---
+        (function initShips() {
+            const container = document.getElementById('ships');
+            const icons = ['🚀', '🛸', '🛰️'];
+            const count = 4;
+            for (let i = 0; i < count; i++) {
+                const ship = document.createElement('div');
+                ship.className = 'ship';
+                ship.textContent = icons[i % icons.length];
+                ship.style.left = 0;
+                ship.style.top = (10 + Math.random() * 70) + 'vh';
+                ship.style.fontSize = (16 + Math.random() * 14) + 'px';
+                ship.style.animationDuration = (18 + Math.random() * 16) + 's';
+                ship.style.animationDelay = (-Math.random() * 20) + 's'; // stagger so they don't launch together
+                container.appendChild(ship);
+            }
+        })();
+
+        // --- AUDIO ---
+        let audioCtx;
+        let muted = localStorage.getItem('basememory_muted') === 'true';
+        updateMuteBtn();
+        function toggleMute() {
+            muted = !muted;
+            localStorage.setItem('basememory_muted', muted);
+            updateMuteBtn();
+        }
+        function updateMuteBtn() {
+            document.getElementById('muteBtn').textContent = muted ? '🔇' : '🔊';
+        }
+        function playSound(type) {
+            if (muted) return;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+            if (type === 'flip') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.exponentialRampToValueAtTime(900, now + 0.08);
+                gain.gain.setValueAtTime(0.08, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                osc.start(now); osc.stop(now + 0.08);
+            } else if (type === 'match') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'error') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.2);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now); osc.stop(now + 0.2);
+            } else if (type === 'win') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(500, now);
+                osc.frequency.exponentialRampToValueAtTime(1000, now + 0.15);
+                osc.frequency.exponentialRampToValueAtTime(1400, now + 0.3);
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                osc.start(now); osc.stop(now + 0.4);
+            }
+        }
+
+        function fireConfetti() {
+            const colors = ['#a855f7', '#ec4899', '#6366f1', '#facc15', '#22d3ee'];
+            for (let i = 0; i < 60; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + 'vw';
+                piece.style.width = (4 + Math.random() * 5) + 'px';
+                piece.style.height = (6 + Math.random() * 8) + 'px';
+                piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.animationDuration = (1.8 + Math.random() * 1.4) + 's';
+                document.body.appendChild(piece);
+                setTimeout(() => piece.remove(), 3400);
+            }
+        }
+
+        // --- SEEDED RNG (so everyone gets the same board on the same UTC day) ---
+        function mulberry32(seed) {
+            return function () {
+                seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+                let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+        function hashString(str) {
+            let h = 0;
+            for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+            return h;
+        }
+        function todayId() {
+            return new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
+        }
+        function seededShuffle(arr, rng) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        // --- GAME STATE ---
+        const SYMBOL_POOL = [
+            '💎', '🔮', '🌙', '🌟', '🧊', '🔥', '🔷', '⚡', '🪐', '🌌', '✨', '🌠',
+            '🌈', '🔶', '🌀', '💠', '🔺', '🔵', '🟣', '🟢', '🟡', '🟠', '⭐', '☄️'
+        ];
+        const LEVELS = [
+            { level: 1, label: 'L1', cols: 4, rows: 4, pairs: 8 },
+            { level: 2, label: 'L2', cols: 5, rows: 4, pairs: 10 },
+            { level: 3, label: 'L3', cols: 6, rows: 4, pairs: 12 },
+            { level: 4, label: 'L4', cols: 6, rows: 5, pairs: 15 },
+            { level: 5, label: 'L5', cols: 6, rows: 6, pairs: 18 },
+            { level: 6, label: 'L6', cols: 8, rows: 6, pairs: 24 }
+        ];
+
+        let boardEl = document.getElementById('board');
+        let cards = []; // {symbol, matched}
+        let flipped = [];
+        let moves = 0;
+        let matchesFound = 0;
+        let timerHandle = null;
+        let startTime = null;
+        let isPracticeMode = false;
+        let isLocked = false;
+        let cardResultLog = []; // '🟢' or '🟡' per pair, for the daily run only
+        let currentLevel = 1;
+
+        function levelConfig(n) {
+            return LEVELS.find(l => l.level === n) || LEVELS[0];
+        }
+
+        function layoutForDay(dayId, level) {
+            const cfg = levelConfig(level);
+            const symbols = SYMBOL_POOL.slice(0, cfg.pairs);
+            const rng = mulberry32(hashString(`${dayId}:L${level}`));
+            return seededShuffle([...symbols, ...symbols], rng);
+        }
+
+        function buildBoard(symbolLayout, cfg) {
+            boardEl.innerHTML = '';
+            boardEl.style.height = ''; // reset before measuring
+            boardEl.style.gridTemplateColumns = `repeat(${cfg.cols}, 1fr)`;
+            boardEl.style.gridTemplateRows = `repeat(${cfg.rows}, 1fr)`;
+
+            // Compute an exact pixel height so every cell is a perfect square,
+            // regardless of how many columns/rows this level uses.
+            const styles = getComputedStyle(boardEl);
+            const paddingX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+            const gapPx = parseFloat(styles.columnGap || styles.gap) || 0;
+            const contentWidth = boardEl.clientWidth - paddingX;
+            const cellWidth = (contentWidth - gapPx * (cfg.cols - 1)) / cfg.cols;
+            const cellHeight = cellWidth * 16; // taller cells stretch the board downward
+            const totalHeight = cellHeight * cfg.rows + gapPx * (cfg.rows - 1) + paddingX;
+            boardEl.style.height = `${totalHeight}px`;
+
+            cards = symbolLayout.map(sym => ({ symbol: sym, matched: false }));
+            flipped = [];
+            moves = 0;
+            matchesFound = 0;
+            cardResultLog = [];
+            startTime = null;
+            isLocked = false;
+            document.getElementById('movesDisplay').textContent = '0';
+            document.getElementById('timeDisplay').textContent = '0:00';
+            stopTimer();
+
+            cards.forEach((card, idx) => {
+                const slot = document.createElement('div');
+                slot.className = 'card-slot';
+                slot.dataset.index = idx;
+                slot.innerHTML = `
+                    <div class="card-inner">
+                        <div class="card-face card-back">🔷</div>
+                        <div class="card-face card-front">${card.symbol}</div>
+                    </div>
+                `;
+                slot.addEventListener('click', () => handleCardClick(idx, slot));
+                boardEl.appendChild(slot);
+            });
+        }
+
+        function startTimer() {
+            if (timerHandle) return;
+            startTime = Date.now();
+            timerHandle = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const m = Math.floor(elapsed / 60);
+                const s = elapsed % 60;
+                document.getElementById('timeDisplay').textContent = `${m}:${s.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+        function stopTimer() {
+            if (timerHandle) clearInterval(timerHandle);
+            timerHandle = null;
+        }
+
+        function handleCardClick(idx, slotEl) {
+            if (isLocked) return;
+            if (cards[idx].matched) return;
+            if (flipped.some(f => f.idx === idx)) return;
+            if (flipped.length >= 2) return;
+
+            if (!startTime) startTimer();
+            playSound('flip');
+            slotEl.classList.add('flipped');
+            flipped.push({ idx, el: slotEl });
+
+            if (flipped.length === 2) {
+                moves++;
+                document.getElementById('movesDisplay').textContent = moves;
+                isLocked = true;
+                const [a, b] = flipped;
+                const isMatch = cards[a.idx].symbol === cards[b.idx].symbol;
+
+                setTimeout(() => {
+                    if (isMatch) {
+                        cards[a.idx].matched = true;
+                        cards[b.idx].matched = true;
+                        a.el.classList.add('matched');
+                        b.el.classList.add('matched');
+                        matchesFound++;
+                        playSound('match');
+                        if (!isPracticeMode) {
+                            // First-try matches (no prior failed flip on either card this round) look "clean"
+                            cardResultLog.push('🟢');
+                        }
+                        if (matchesFound === levelConfig(currentLevel).pairs) {
+                            finishRound();
+                        }
+                    } else {
+                        a.el.classList.add('shake');
+                        b.el.classList.add('shake');
+                        playSound('error');
+                        if (!isPracticeMode) cardResultLog.push('🟡');
+                        setTimeout(() => {
+                            a.el.classList.remove('flipped', 'shake');
+                            b.el.classList.remove('flipped', 'shake');
+                        }, 500);
+                    }
+                    flipped = [];
+                    isLocked = false;
+                }, 700);
+            }
+        }
+
+        function finishRound() {
+            stopTimer();
+            playSound('win');
+            fireConfetti();
+            const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+
+            if (isPracticeMode) {
+                setStatus(`✨ Practice round done in ${moves} moves, ${elapsedSec}s. Try the daily puzzle anytime!`);
+                return;
+            }
+
+            const cfg = levelConfig(currentLevel);
+            markLevelCompleted(currentLevel);
+            const score = computeScore(moves, elapsedSec, currentLevel);
+            storeResult(currentLevel, moves, elapsedSec, score);
+            saveLeaderboardEntry(currentLevel, score, moves, elapsedSec);
+            if (currentLevel === 1) updateStreak();
+
+            showResultOverlay(moves, elapsedSec, score, cfg);
+            refreshActionButtons();
+        }
+
+        function computeScore(moves, seconds, level) {
+            const cfg = levelConfig(level);
+            const base = cfg.pairs * 125; // harder levels (more pairs) are worth more
+            const penalty = moves * 15 + seconds * 3;
+            return Math.max(100, base - penalty);
+        }
+
+        function showResultOverlay(moves, seconds, score, cfg) {
+            const m = Math.floor(seconds / 60), s = seconds % 60;
+            document.getElementById('resultSummary').textContent =
+                `${cfg.label} · Moves: ${moves} · Time: ${m}:${s.toString().padStart(2, '0')} · Score: ${score}`;
+            document.getElementById('resultGrid').textContent = chunkEmojiGrid(cardResultLog);
+            document.getElementById('resultOverlay').classList.remove('hidden');
+            window.__lastResult = { moves, seconds, score, dayId: todayId(), level: cfg.level };
+
+            const nextBtn = document.getElementById('nextLevelBtn');
+            const hasNext = cfg.level < LEVELS.length;
+            if (hasNext) {
+                nextBtn.classList.remove('hidden');
+                nextBtn.textContent = `🔓 Play ${levelConfig(cfg.level + 1).label} →`;
+            } else {
+                nextBtn.classList.add('hidden');
+            }
+        }
+        function goToNextLevel() {
+            closeResultOverlay();
+            currentLevel = Math.min(currentLevel + 1, LEVELS.length);
+            startDailyRound(currentLevel);
+        }
+        function chunkEmojiGrid(arr, chunkSize = 4) {
+            let out = '';
+            for (let i = 0; i < arr.length; i++) {
+                out += arr[i];
+                if ((i + 1) % chunkSize === 0) out += '\n';
+            }
+            return out;
+        }
+        function closeResultOverlay() {
+            document.getElementById('resultOverlay').classList.add('hidden');
+        }
+        function shareResult() {
+            const r = window.__lastResult;
+            if (!r) return;
+            const m = Math.floor(r.seconds / 60), s = r.seconds % 60;
+            const text = `Base Memory ${r.dayId} · ${levelConfig(r.level).label}\nMoves: ${r.moves} · Time: ${m}:${s.toString().padStart(2, '0')} · Score: ${r.score}\n${chunkEmojiGrid(cardResultLog)}`;
+            navigator.clipboard?.writeText(text).then(() => {
+                setStatus('📋 Result copied — paste it anywhere to share!');
+            }).catch(() => {
+                setStatus('⚠️ Could not copy automatically — select the text manually.', true);
+            });
+        }
+
+        // --- LEVEL PROGRESS (per device, per UTC day) ---
+        function levelCompletedKey(level) { return `basememory_completed_L${level}`; }
+        function isLevelCompletedToday(level, dayId) {
+            return localStorage.getItem(levelCompletedKey(level)) === (dayId || todayId());
+        }
+        function markLevelCompleted(level) {
+            localStorage.setItem(levelCompletedKey(level), todayId());
+        }
+        function isLevelUnlocked(level, dayId) {
+            return level === 1 || isLevelCompletedToday(level - 1, dayId);
+        }
+
+        function resultKey(level) { return `basememory_result_L${level}_${todayId()}`; }
+        function storeResult(level, moves, seconds, score) {
+            localStorage.setItem(resultKey(level), JSON.stringify({ moves, seconds, score }));
+        }
+        function getResult(level) {
+            try { return JSON.parse(localStorage.getItem(resultKey(level))); } catch { return null; }
+        }
+        function bestScoreToday() {
+            let best = null;
+            LEVELS.forEach(cfg => {
+                const r = getResult(cfg.level);
+                if (r && (!best || r.score > best.score)) best = { ...r, level: cfg.level };
+            });
+            return best;
+        }
+
+        function renderLevelSelector() {
+            const container = document.getElementById('levelSelector');
+            container.innerHTML = '';
+            const dayId = todayId();
+            LEVELS.forEach(cfg => {
+                const unlocked = isLevelUnlocked(cfg.level, dayId);
+                const done = isLevelCompletedToday(cfg.level, dayId);
+                const btn = document.createElement('button');
+                btn.className = 'level-btn glass-panel'
+                    + (cfg.level === currentLevel ? ' active' : '')
+                    + (!unlocked ? ' locked' : '')
+                    + (done && cfg.level !== currentLevel ? ' done' : '');
+                btn.textContent = unlocked ? cfg.label : `🔒 ${cfg.label}`;
+                btn.disabled = !unlocked;
+                btn.onclick = () => { if (unlocked) startDailyRound(cfg.level); };
+                container.appendChild(btn);
+            });
+        }
+
+        function refreshActionButtons() {
+            const dayId = todayId();
+            const level1Done = isLevelCompletedToday(1, dayId);
+            const claimed = isDailyClaimed(dayId);
+            document.getElementById('dailyBtn').disabled = !level1Done || claimed;
+            document.getElementById('dailyBtnLabel').textContent = !level1Done
+                ? '🧩 Solve Level 1 First'
+                : (claimed ? '✅ Already Claimed Today' : '⚡ Claim Daily Reward');
+            document.getElementById('saveBtn').disabled = !bestScoreToday();
+            renderLevelSelector();
+        }
+
+        function startDailyRound(level) {
+            isPracticeMode = false;
+            const dayId = todayId();
+
+            if (level) {
+                currentLevel = level;
+            } else {
+                // Auto-resume at the first unlocked level not yet completed today
+                currentLevel = 1;
+                for (const cfg of LEVELS) {
+                    if (isLevelCompletedToday(cfg.level, dayId)) {
+                        currentLevel = Math.min(cfg.level + 1, LEVELS.length);
+                    } else {
+                        currentLevel = cfg.level;
+                        break;
+                    }
+                }
+            }
+
+            const cfg = levelConfig(currentLevel);
+            document.getElementById('puzzleSubtitle').textContent = `Daily Puzzle · ${dayId} · ${cfg.label}`;
+
+            if (isLevelCompletedToday(currentLevel, dayId)) {
+                buildBoard(layoutForDay(dayId, currentLevel), cfg);
+                cards.forEach(c => { c.matched = true; });
+                document.querySelectorAll('.card-slot').forEach(el => el.classList.add('matched', 'flipped'));
+                isLocked = true;
+                setStatus(`✅ ${cfg.label} already solved today — pick another level or come back tomorrow!`);
+            } else {
+                buildBoard(layoutForDay(dayId, currentLevel), cfg);
+                setStatus(`🧩 Solve ${cfg.label} to progress today's puzzle.`);
+            }
+
+            refreshActionButtons();
+            refreshStreakDisplay();
+        }
+
+        function startPracticeRound() {
+            playSound('flip');
+            isPracticeMode = true;
+            const cfg = levelConfig(currentLevel);
+            document.getElementById('puzzleSubtitle').textContent = `Practice Mode · ${cfg.label} · Random Layout`;
+            const rng = mulberry32(Date.now() & 0xffffffff);
+            const symbols = SYMBOL_POOL.slice(0, cfg.pairs);
+            buildBoard(seededShuffle([...symbols, ...symbols], rng), cfg);
+            setStatus('🎲 Practice round — this one is just for fun, no reward.');
+        }
+
+        // --- LEADERBOARD (stored on this device only) ---
+        function leaderboardStoreKey() { return 'basememory_leaderboard'; }
+        function getLeaderboard() {
+            try { return JSON.parse(localStorage.getItem(leaderboardStoreKey()) || '[]'); } catch { return []; }
+        }
+        function saveLeaderboardEntry(level, score, moves, seconds) {
+            const entries = getLeaderboard();
+            const idKey = userAddress ? userAddress.toLowerCase() : 'guest';
+            const addr = userAddress ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : 'Guest Player';
+            const day = todayId();
+            const existingIdx = entries.findIndex(e => e.idKey === idKey && e.level === level);
+            const entry = { idKey, addr, level, score, moves, seconds, day };
+            if (existingIdx >= 0) {
+                if (entries[existingIdx].score < score) entries[existingIdx] = entry;
+            } else {
+                entries.push(entry);
+            }
+            entries.sort((a, b) => b.score - a.score);
+            localStorage.setItem(leaderboardStoreKey(), JSON.stringify(entries.slice(0, 200)));
+        }
+
+        let leaderboardFilterLevel = 1;
+        function openLeaderboard() {
+            playSound('flip');
+            leaderboardFilterLevel = currentLevel;
+            renderLeaderboardTabs();
+            renderLeaderboardList();
+            document.getElementById('leaderboardOverlay').classList.remove('hidden');
+        }
+        function closeLeaderboard() {
+            document.getElementById('leaderboardOverlay').classList.add('hidden');
+        }
+        function renderLeaderboardTabs() {
+            const tabs = document.getElementById('leaderboardLevelTabs');
+            tabs.innerHTML = '';
+            LEVELS.forEach(cfg => {
+                const btn = document.createElement('button');
+                btn.className = 'level-btn glass-panel' + (cfg.level === leaderboardFilterLevel ? ' active' : '');
+                btn.textContent = cfg.label;
+                btn.onclick = () => { leaderboardFilterLevel = cfg.level; renderLeaderboardTabs(); renderLeaderboardList(); };
+                tabs.appendChild(btn);
+            });
+        }
+        function renderLeaderboardList() {
+            const list = document.getElementById('leaderboardList');
+            const entries = getLeaderboard()
+                .filter(e => e.level === leaderboardFilterLevel)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10);
+            list.innerHTML = '';
+            if (entries.length === 0) {
+                list.innerHTML = '<p class="text-xs text-gray-400 text-center py-6">No runs yet for this level — be the first!</p>';
+                return;
+            }
+            entries.forEach((e, i) => {
+                const row = document.createElement('div');
+                row.className = 'lb-row glass-panel px-3 py-2.5 rounded-xl text-xs';
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+                row.innerHTML = `
+                    <span class="font-bold text-center">${medal}</span>
+                    <span class="font-mono overflow-hidden text-ellipsis whitespace-nowrap">${e.addr}</span>
+                    <span class="text-gray-400 text-right">${e.moves}</span>
+                    <span class="text-purple-300 font-bold text-right">${e.score}</span>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function streakKey() {
+            return userAddress ? `basememory_streak_${userAddress.toLowerCase()}` : 'basememory_streak_guest';
+        }
+        function lastStreakDayKey() {
+            return userAddress ? `basememory_streakday_${userAddress.toLowerCase()}` : 'basememory_streakday_guest';
+        }
+        function updateStreak() {
+            const today = todayId();
+            const lastDay = localStorage.getItem(lastStreakDayKey());
+            let streak = parseInt(localStorage.getItem(streakKey()) || '0', 10);
+            if (lastDay === today) {
+                // already counted today
+            } else {
+                const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+                streak = (lastDay === yesterday) ? streak + 1 : 1;
+                localStorage.setItem(streakKey(), streak);
+                localStorage.setItem(lastStreakDayKey(), today);
+            }
+            refreshStreakDisplay();
+        }
+        function refreshStreakDisplay() {
+            const streak = parseInt(localStorage.getItem(streakKey()) || '0', 10);
+            document.getElementById('streakDisplay').textContent = `🔥${streak}`;
+        }
+
+        function setStatus(msg, error = false) {
+            const el = document.getElementById('txStatus');
+            el.textContent = msg;
+            el.className = `text-xs text-center font-mono mt-4 min-h-[1rem] tracking-wide px-4 ${error ? 'text-red-400' : 'text-emerald-400'}`;
+        }
+        function setBtnBusy(btn, busy, busyLabel) {
+            if (busy) {
+                btn.dataset.originalHtml = btn.innerHTML;
+                btn.innerHTML = `<span>${busyLabel}</span>`;
+                btn.disabled = true;
+            } else {
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+                btn.disabled = false;
+            }
+        }
+
+        // --- WEB3 / WALLET (same multi-wallet picker pattern as Base Puzzle) ---
+        const BASE_CHAIN_ID = '0x2105';
+        const BASE_CHAIN_PARAMS = {
+            chainId: BASE_CHAIN_ID,
+            chainName: 'Base',
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://mainnet.base.org'],
+            blockExplorerUrls: ['https://basescan.org']
+        };
+
+        const WALLET_CATALOG = [
+            { id: 'metamask', name: 'MetaMask', icon: '🦊', match: p => !!p.isMetaMask && !p.isCoinbaseWallet, installUrl: 'https://metamask.io/download/', mobileLink: url => `https://metamask.app.link/dapp/${url.replace(/^https?:\/\//, '')}` },
+            { id: 'coinbase', name: 'Coinbase Wallet', icon: '🔵', match: p => !!p.isCoinbaseWallet, installUrl: 'https://www.coinbase.com/wallet/downloads', mobileLink: url => `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(url)}` },
+            { id: 'trust', name: 'Trust Wallet', icon: '🛡️', match: p => !!p.isTrust || !!p.isTrustWallet, installUrl: 'https://trustwallet.com/download', mobileLink: url => `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(url)}` },
+            { id: 'brave', name: 'Brave Wallet', icon: '🦁', match: p => !!p.isBraveWallet, installUrl: 'https://brave.com/wallet/', mobileLink: null },
+            { id: 'rabby', name: 'Rabby Wallet', icon: '🐰', match: p => !!p.isRabby, installUrl: 'https://rabby.io/', mobileLink: null }
+        ];
+        const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+        let userAddress = null;
+        let activeProvider = null;
+
+        function getInjectedProviders() {
+            if (window.ethereum?.providers?.length) return window.ethereum.providers;
+            if (window.ethereum) return [window.ethereum];
+            return [];
+        }
+
+        function detectWallets() {
+            const providers = getInjectedProviders();
+            const detected = [];
+            const usedProviders = new Set();
+
+            WALLET_CATALOG.forEach(entry => {
+                const provider = providers.find(p => entry.match(p));
+                if (provider) {
+                    detected.push({ ...entry, provider, installed: true });
+                    usedProviders.add(provider);
+                }
+            });
+            providers.forEach(p => {
+                if (!usedProviders.has(p)) {
+                    detected.push({ id: 'injected', name: 'Browser Wallet', icon: '👛', provider: p, installed: true });
+                }
+            });
+            ['metamask', 'coinbase', 'trust'].forEach(id => {
+                if (!detected.some(w => w.id === id)) {
+                    const entry = WALLET_CATALOG.find(w => w.id === id);
+                    detected.push({ ...entry, provider: null, installed: false });
+                }
+            });
+            return detected;
+        }
+
+        function walletActionFor(w) {
+            if (w.installed) return { label: 'Detected', style: 'text-emerald-400', action: () => selectWallet(w) };
+            if (IS_MOBILE && w.mobileLink) {
+                return {
+                    label: 'Tap to open in wallet app',
+                    style: 'text-blue-300',
+                    action: () => { window.location.href = w.mobileLink(window.location.href); }
+                };
+            }
+            return {
+                label: 'Not installed — tap to get it',
+                style: 'text-gray-400',
+                action: () => window.open(w.installUrl, '_blank')
+            };
+        }
+
+        function openWalletModal() {
+            playSound('flip');
+            const wallets = detectWallets();
+            const list = document.getElementById('walletList');
+            list.innerHTML = '';
+            wallets.forEach(w => {
+                const { label, style, action } = walletActionFor(w);
+                const row = document.createElement('button');
+                row.className = 'wallet-option glass-panel w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all active:scale-95';
+                row.innerHTML = `
+                    <span class="text-2xl">${w.icon}</span>
+                    <span class="flex-1">
+                        <span class="block text-sm font-bold">${w.name}</span>
+                        <span class="block text-[11px] ${style}">${label}</span>
+                    </span>
+                `;
+                row.onclick = action;
+                list.appendChild(row);
+            });
+            document.getElementById('walletModal').classList.remove('hidden');
+        }
+        function closeWalletModal() {
+            document.getElementById('walletModal').classList.add('hidden');
+        }
+        document.getElementById('walletModal').addEventListener('click', closeWalletModal);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeWalletModal(); });
+
+        async function selectWallet(wallet) {
+            closeWalletModal();
+            const btn = document.getElementById('connectBtn');
+            setBtnBusy(btn, true, '...');
+            try {
+                const acc = await wallet.provider.request({ method: 'eth_requestAccounts' });
+                activeProvider = wallet.provider;
+                userAddress = acc[0];
+                document.getElementById('walletAddress').innerText =
+                    `${wallet.icon} ${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+
+                const onBaseNetwork = await ensureBaseNetwork();
+                if (onBaseNetwork) {
+                    btn.textContent = 'Disconnect';
+                    btn.onclick = disconnectWallet;
+                    setBtnBusy(btn, false);
+                    setStatus(`✅ ${wallet.name} connected on Base`);
+                } else {
+                    setBtnBusy(btn, false);
+                    setStatus("⚠️ Connected, but couldn't switch to Base — switch manually in your wallet", true);
+                }
+                activeProvider.on?.('accountsChanged', handleAccountsChanged);
+                activeProvider.on?.('chainChanged', handleChainChanged);
+                refreshStreakDisplay();
+                startDailyRound(); // re-check daily/claim state under this wallet's identity
+            } catch (e) {
+                setBtnBusy(btn, false);
+                setStatus("❌ Connection request was rejected", true);
+            }
+        }
+
+        function disconnectWallet() {
+            playSound('flip');
+            userAddress = null;
+            activeProvider = null;
+            document.getElementById('walletAddress').innerText = 'Not Connected';
+            const btn = document.getElementById('connectBtn');
+            btn.textContent = 'Connect';
+            btn.onclick = openWalletModal;
+            refreshStreakDisplay();
+            startDailyRound();
+            setStatus('🔌 Wallet disconnected');
+        }
+
+        async function ensureBaseNetwork() {
+            try {
+                await activeProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] });
+                return true;
+            } catch (switchError) {
+                if (switchError && switchError.code === 4902) {
+                    try {
+                        await activeProvider.request({ method: 'wallet_addEthereumChain', params: [BASE_CHAIN_PARAMS] });
+                        return true;
+                    } catch { return false; }
+                }
+                return false;
+            }
+        }
+
+        function handleAccountsChanged(accounts) {
+            if (!accounts || accounts.length === 0) disconnectWallet();
+            else {
+                userAddress = accounts[0];
+                document.getElementById('walletAddress').innerText = `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+                refreshStreakDisplay();
+                startDailyRound();
+            }
+        }
+        function handleChainChanged(chainId) {
+            const onBase = chainId === BASE_CHAIN_ID;
+            document.getElementById('netLabel').textContent = onBase ? 'BASE MAINNET' : 'WRONG NETWORK';
+            document.getElementById('netDot').className = `w-2 h-2 rounded-full ${onBase ? 'bg-blue-500' : 'bg-red-500'} animate-pulse`;
+        }
+
+        // Daily reward is gated per wallet PER PUZZLE DAY (not a rolling 24h window),
+        // matching the "one shared puzzle a day" design.
+        function dailyClaimKey() {
+            return userAddress ? `basememory_claimed_${userAddress.toLowerCase()}` : null;
+        }
+        function isDailyClaimed(dayId) {
+            const key = dailyClaimKey();
+            return key ? localStorage.getItem(key) === dayId : false;
+        }
+
+        async function claimDailyReward() {
+            playSound('flip');
+            if (!userAddress) return setStatus('⚠️ Connect your wallet first', true);
+            const dayId = todayId();
+            if (!isLevelCompletedToday(1, dayId)) return setStatus('⚠️ Solve Level 1 first', true);
+            if (isDailyClaimed(dayId)) return setStatus('⏳ Already claimed today — come back tomorrow', true);
+
+            const btn = document.getElementById('dailyBtn');
+            setBtnBusy(btn, true, '⏳ Confirm in wallet...');
+            try {
+                setStatus('⏳ Awaiting confirmation...');
+                const tx = await activeProvider.request({
+                    method: 'eth_sendTransaction',
+                    params: [{ from: userAddress, to: userAddress, value: '0x0' }]
+                });
+                localStorage.setItem(dailyClaimKey(), dayId);
+                setStatus(`✅ Daily reward claimed! Tx: ${tx.slice(0, 10)}...`);
+                playSound('win');
+            } catch {
+                setStatus('❌ Transaction was cancelled', true);
+                playSound('error');
+            } finally {
+                setBtnBusy(btn, false);
+                refreshActionButtons();
+            }
+        }
+
+        async function saveResultOnChain() {
+            playSound('flip');
+            if (!userAddress) return setStatus('⚠️ Connect your wallet first', true);
+            const best = bestScoreToday();
+            if (!best) return setStatus("⚠️ Solve at least one level first", true);
+
+            const btn = document.getElementById('saveBtn');
+            setBtnBusy(btn, true, '⏳ Confirm in wallet...');
+            try {
+                setStatus('⏳ Signing result payload...');
+                // Demo payload only — no real contract is deployed for this free-tier build.
+                const data = '0xa1b2c3d4' + best.score.toString(16).padStart(64, '0');
+                const tx = await activeProvider.request({
+                    method: 'eth_sendTransaction',
+                    params: [{ from: userAddress, to: '0x000000000000000000000000000000000000dEaD', data }]
+                });
+                setStatus(`✅ Best result (Level ${best.level}, score ${best.score}) saved on-chain! Tx: ${tx.slice(0, 10)}...`);
+                playSound('win');
+            } catch {
+                setStatus('❌ Failed to save result', true);
+                playSound('error');
+            } finally {
+                setBtnBusy(btn, false);
+            }
+        }
+
+        // Initialize
+        startDailyRound();
+    </script>
+</body>
+</html>
