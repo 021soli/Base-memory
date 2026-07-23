@@ -922,6 +922,37 @@
         let ethersContract = null; // signer-connected, for sending transactions
         let ethersContractRead = null; // provider-connected, for read-only calls
 
+        // --- BASE BUILDER CODE ATTRIBUTION (ERC-8021) ---
+        // Registered at base.dev → Settings → Builder Code.
+        // Appending this suffix to onchain tx calldata attributes the tx to this app
+        // for Base's analytics/rewards program. Contracts ignore the extra bytes.
+        const BUILDER_CODE = "bc_zfj18t5f";
+
+        // Builds an ERC-8021 (schema 0) data suffix: [codeLen(1B)][code ASCII][schemaId=0(1B)][marker 0x8021 x8 (16B)]
+        function buildErc8021Suffix(code) {
+            const codeBytes = new TextEncoder().encode(code);
+            if (codeBytes.length > 255) throw new Error('Builder code too long for ERC-8021 schema 0');
+            const toHex = n => n.toString(16).padStart(2, '0');
+            const lenHex = toHex(codeBytes.length);
+            const codeHex = Array.from(codeBytes).map(toHex).join('');
+            const schemaIdHex = '00';
+            const markerHex = '8021'.repeat(8); // 16 bytes
+            return '0x' + lenHex + codeHex + schemaIdHex + markerHex;
+        }
+        const DATA_SUFFIX = BUILDER_CODE ? buildErc8021Suffix(BUILDER_CODE) : null;
+
+        // Sends a contract call with the Builder Code suffix appended to its calldata,
+        // via populateTransaction + signer.sendTransaction (works with plain ethers.js,
+        // no wagmi/viem needed).
+        async function sendWithAttribution(contract, methodName, args = []) {
+            const populated = await contract[methodName].populateTransaction(...args);
+            if (DATA_SUFFIX) {
+                populated.data = populated.data + DATA_SUFFIX.slice(2);
+            }
+            const signer = await ethersProvider.getSigner();
+            return await signer.sendTransaction(populated);
+        }
+
         function setupEthersContract() {
             if (!activeProvider || CONTRACT_ADDRESS.startsWith("0xYOUR_")) {
                 ethersProvider = null;
@@ -1141,7 +1172,7 @@
             try {
                 setStatus('⏳ Awaiting confirmation...');
                 const contract = await getEthersSignerContract();
-                const tx = await contract.claimDaily();
+                const tx = await sendWithAttribution(contract, 'claimDaily');
                 setStatus('⏳ Waiting for confirmation on Base...');
                 await tx.wait();
                 localStorage.setItem(dailyClaimKey(), dayId); // fallback cache
@@ -1170,7 +1201,7 @@
             try {
                 setStatus('⏳ Awaiting confirmation...');
                 const contract = await getEthersSignerContract();
-                const tx = await contract.saveResult(best.level, best.score);
+                const tx = await sendWithAttribution(contract, 'saveResult', [best.level, best.score]);
                 setStatus('⏳ Waiting for confirmation on Base...');
                 await tx.wait();
                 setStatus(`✅ Best result (Level ${best.level}, score ${best.score}) saved on-chain! Tx: ${tx.hash.slice(0, 10)}...`);
