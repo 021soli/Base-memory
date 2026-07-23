@@ -7,6 +7,7 @@
     <meta name="description" content="A daily memory match puzzle for the Base network — one shared layout a day, claim onchain rewards, and share your streak.">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;900&display=swap');
 
@@ -903,6 +904,44 @@
         let userAddress = null;
         let activeProvider = null;
 
+        // --- ON-CHAIN CONTRACT (BaseMemoryDaily.sol) ---
+        // TODO: replace with your deployed contract address on Base.
+        const CONTRACT_ADDRESS = "0xB612Ce2552f34F1840B734CA696b5F7E37fFc92d";
+        const CONTRACT_ABI = [
+            "function claimDaily() external",
+            "function saveResult(uint8 level, uint256 score) external",
+            "function hasClaimedToday(address player) external view returns (bool)",
+            "function getStreak(address player) external view returns (uint256)",
+            "function currentDayId() external view returns (uint256)",
+            "event DailyClaimed(address indexed player, uint256 indexed dayId, uint256 streak, uint256 reward)",
+            "event ResultSaved(address indexed player, uint256 indexed dayId, uint8 level, uint256 score)"
+        ];
+
+        // ethers provider/signer/contract are (re)built whenever the active wallet changes.
+        let ethersProvider = null;
+        let ethersContract = null; // signer-connected, for sending transactions
+        let ethersContractRead = null; // provider-connected, for read-only calls
+
+        function setupEthersContract() {
+            if (!activeProvider || CONTRACT_ADDRESS.startsWith("0xYOUR_")) {
+                ethersProvider = null;
+                ethersContract = null;
+                ethersContractRead = null;
+                return;
+            }
+            ethersProvider = new ethers.BrowserProvider(activeProvider);
+            ethersContractRead = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, ethersProvider);
+        }
+
+        async function getEthersSignerContract() {
+            if (!ethersProvider) throw new Error("Wallet not connected");
+            const signer = await ethersProvider.getSigner();
+            if (!ethersContract) {
+                ethersContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            }
+            return ethersContract;
+        }
+
         function getInjectedProviders() {
             if (window.ethereum?.providers?.length) return window.ethereum.providers;
             if (window.ethereum) return [window.ethereum];
@@ -988,6 +1027,7 @@
                 userAddress = acc[0];
                 document.getElementById('walletAddress').innerText =
                     `${wallet.icon} ${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+                setupEthersContract();
 
                 const onBaseNetwork = await ensureBaseNetwork();
                 if (onBaseNetwork) {
@@ -1003,6 +1043,7 @@
                 activeProvider.on?.('chainChanged', handleChainChanged);
                 refreshStreakDisplay();
                 startDailyRound(); // re-check daily/claim state under this wallet's identity
+                syncClaimStatusFromChain();
             } catch (e) {
                 setBtnBusy(btn, false);
                 setStatus("❌ Connection request was rejected", true);
@@ -1013,10 +1054,12 @@
             playSound('flip');
             userAddress = null;
             activeProvider = null;
+            setupEthersContract();
             document.getElementById('walletAddress').innerText = 'Not Connected';
             const btn = document.getElementById('connectBtn');
             btn.textContent = 'Connect';
             btn.onclick = openWalletModal;
+            onChainClaimedTodayCache = null;
             refreshStreakDisplay();
             startDailyRound();
             setStatus('🔌 Wallet disconnected');
@@ -1042,8 +1085,10 @@
             else {
                 userAddress = accounts[0];
                 document.getElementById('walletAddress').innerText = `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+                setupEthersContract();
                 refreshStreakDisplay();
                 startDailyRound();
+                syncClaimStatusFromChain();
             }
         }
         function handleChainChanged(chainId) {
@@ -1053,18 +1098,40 @@
         }
 
         // Daily reward is gated per wallet PER PUZZLE DAY (not a rolling 24h window),
-        // matching the "one shared puzzle a day" design.
+        // matching the "one shared puzzle a day" design. Ground truth now lives on-chain
+        // (BaseMemoryDaily.hasClaimedToday); this local cache just makes the synchronous
+        // UI refresh function fast, and falls back to localStorage if no contract is set.
+        let onChainClaimedTodayCache = null; // true/false once synced, null = unknown yet
+
         function dailyClaimKey() {
             return userAddress ? `basememory_claimed_${userAddress.toLowerCase()}` : null;
         }
         function isDailyClaimed(dayId) {
+            if (onChainClaimedTodayCache !== null) return onChainClaimedTodayCache;
             const key = dailyClaimKey();
             return key ? localStorage.getItem(key) === dayId : false;
+        }
+
+        // Pulls the real claim status from the contract and refreshes the buttons.
+        async function syncClaimStatusFromChain() {
+            onChainClaimedTodayCache = null;
+            if (!userAddress || !ethersContractRead) {
+                refreshActionButtons();
+                return;
+            }
+            try {
+                onChainClaimedTodayCache = await ethersContractRead.hasClaimedToday(userAddress);
+            } catch (e) {
+                console.error('Failed to read claim status from chain:', e);
+                onChainClaimedTodayCache = null; // fall back to localStorage in isDailyClaimed
+            }
+            refreshActionButtons();
         }
 
         async function claimDailyReward() {
             playSound('flip');
             if (!userAddress) return setStatus('⚠️ Connect your wallet first', true);
+            if (!ethersContractRead) return setStatus('⚠️ Contract address not configured yet', true);
             const dayId = todayId();
             if (!isLevelCompletedToday(1, dayId)) return setStatus('⚠️ Solve Level 1 first', true);
             if (isDailyClaimed(dayId)) return setStatus('⏳ Already claimed today — come back tomorrow', true);
@@ -1073,15 +1140,17 @@
             setBtnBusy(btn, true, '⏳ Confirm in wallet...');
             try {
                 setStatus('⏳ Awaiting confirmation...');
-                const tx = await activeProvider.request({
-                    method: 'eth_sendTransaction',
-                    params: [{ from: userAddress, to: userAddress, value: '0x0' }]
-                });
-                localStorage.setItem(dailyClaimKey(), dayId);
-                setStatus(`✅ Daily reward claimed! Tx: ${tx.slice(0, 10)}...`);
+                const contract = await getEthersSignerContract();
+                const tx = await contract.claimDaily();
+                setStatus('⏳ Waiting for confirmation on Base...');
+                await tx.wait();
+                localStorage.setItem(dailyClaimKey(), dayId); // fallback cache
+                onChainClaimedTodayCache = true;
+                setStatus(`✅ Daily reward claimed! Tx: ${tx.hash.slice(0, 10)}...`);
                 playSound('win');
-            } catch {
-                setStatus('❌ Transaction was cancelled', true);
+            } catch (e) {
+                const reverted = e?.reason || e?.shortMessage;
+                setStatus(reverted ? `❌ ${reverted}` : '❌ Transaction was cancelled', true);
                 playSound('error');
             } finally {
                 setBtnBusy(btn, false);
@@ -1092,23 +1161,23 @@
         async function saveResultOnChain() {
             playSound('flip');
             if (!userAddress) return setStatus('⚠️ Connect your wallet first', true);
+            if (!ethersContractRead) return setStatus('⚠️ Contract address not configured yet', true);
             const best = bestScoreToday();
             if (!best) return setStatus("⚠️ Solve at least one level first", true);
 
             const btn = document.getElementById('saveBtn');
             setBtnBusy(btn, true, '⏳ Confirm in wallet...');
             try {
-                setStatus('⏳ Signing result payload...');
-                // Demo payload only — no real contract is deployed for this free-tier build.
-                const data = '0xa1b2c3d4' + best.score.toString(16).padStart(64, '0');
-                const tx = await activeProvider.request({
-                    method: 'eth_sendTransaction',
-                    params: [{ from: userAddress, to: '0x000000000000000000000000000000000000dEaD', data }]
-                });
-                setStatus(`✅ Best result (Level ${best.level}, score ${best.score}) saved on-chain! Tx: ${tx.slice(0, 10)}...`);
+                setStatus('⏳ Awaiting confirmation...');
+                const contract = await getEthersSignerContract();
+                const tx = await contract.saveResult(best.level, best.score);
+                setStatus('⏳ Waiting for confirmation on Base...');
+                await tx.wait();
+                setStatus(`✅ Best result (Level ${best.level}, score ${best.score}) saved on-chain! Tx: ${tx.hash.slice(0, 10)}...`);
                 playSound('win');
-            } catch {
-                setStatus('❌ Failed to save result', true);
+            } catch (e) {
+                const reverted = e?.reason || e?.shortMessage;
+                setStatus(reverted ? `❌ ${reverted}` : '❌ Failed to save result', true);
                 playSound('error');
             } finally {
                 setBtnBusy(btn, false);
